@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>rPPG Pulse Detection</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2em;
+      text-align: center;
+    }
+    #waveform {
+      margin-top: 2em;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid #ccc;
+    }
+    button {
+      margin: 0.5em;
+      padding: 0.5em 1em;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Upload Face Video for Pulse Detection</h1>
+
+  <form id="uploadForm">
+    <input type="file" id="videoInput" accept="video/*" required />
+    <br><br>
+    <button type="submit">Submit</button>
+    <button type="button" id="resetBtn">Reset</button>
+  </form>
+
+  <p id="status"></p>
+  <img id="waveform" src="" alt="Pulse waveform will appear here"/>
+
+  <script>
+    const uploadForm = document.getElementById("uploadForm");
+    const resetBtn = document.getElementById("resetBtn");
+    const input = document.getElementById('videoInput');
+    const status = document.getElementById('status');
+    const waveform = document.getElementById('waveform');
+
+    uploadForm.addEventListener("submit", async function (event) {
+      event.preventDefault();
+
+      const file = input.files[0];
+
+      if (!file) {
+        alert("❌ Please select a video file.");
+        return;
+      }
+
+      // ✅ Check file type
+      if (!file.type.startsWith("video/")) {
+        alert("❌ Invalid file type. Please upload a video.");
+        return;
+      }
+
+      // ✅ Check file size (20MB max)
+      const maxSizeMB = 20;
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        alert(`❌ File too large. Maximum size is ${maxSizeMB}MB.`);
+        return;
+      }
+
+      // ✅ Check video duration ≤ 30 seconds
+      const videoEl = document.createElement('video');
+      videoEl.preload = "metadata";
+
+      videoEl.onloadedmetadata = async function () {
+        window.URL.revokeObjectURL(videoEl.src);
+        const duration = videoEl.duration;
+
+        if (duration > 30) {
+          alert("❌ Video must be 30 seconds or shorter.");
+          return;
+        }
+
+        // Upload if valid
+        status.innerText = "⏳ Processing video...";
+        waveform.src = "";
+
+        const formData = new FormData();
+        formData.append('video', file);
+
+        try {
+          const response = await fetch('http://localhost:4000/api/rppg/pulse', {
+            method: 'POST',
+            body: formData
+          });
+
+          const data = await response.json();
+          if (response.ok) {
+            status.innerText = "✅ Pulse extracted successfully!";
+            waveform.src = data.image;
+          } else {
+            status.innerText = "❌ Error: " + (data.message || 'Server error');
+          }
+        } catch (error) {
+          console.error("Fetch error:", error);
+          status.innerText = "❌ Network or server error.";
+        }
+      };
+
+      videoEl.onerror = function () {
+        alert("❌ Could not load video. Please choose a valid file.");
+      };
+
+      videoEl.src = URL.createObjectURL(file);
+    });
+
+    // ✅ Reset button handler
+    resetBtn.addEventListener("click", function () {
+      input.value = "";
+      waveform.src = "";
+      status.innerText = "";
+    });
+  </script>
+
+</body>
+</html>
