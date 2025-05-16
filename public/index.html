@@ -86,7 +86,7 @@
         formData.append('video', file);
 
         try {
-          const response = await fetch('http://localhost:4000/api/rppg/pulse', {
+          const response = await fetch('https://rppg.onrender.com/api/rppg/pulse', {
             method: 'POST',
             body: formData
           });
