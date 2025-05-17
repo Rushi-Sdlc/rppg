@@ -1,123 +1,134 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
-  <title>rPPG Pulse Detection</title>
+  <title>Live rPPG Pulse Detection</title>
   <style>
     body {
       font-family: sans-serif;
-      padding: 2em;
       text-align: center;
+      padding: 2em;
     }
+
+    video {
+      width: 60%;
+      border: 1px solid #ccc;
+    }
+
+    canvas {
+      display: none;
+    }
+
+    button {
+      margin: 1em;
+      padding: 0.5em 1.5em;
+    }
+
     #waveform {
       margin-top: 2em;
       max-width: 100%;
       height: auto;
       border: 1px solid #ccc;
     }
-    button {
-      margin: 0.5em;
-      padding: 0.5em 1em;
-    }
   </style>
 </head>
+
 <body>
 
-  <h1>Upload Face Video for Pulse Detection</h1>
-
-  <form id="uploadForm">
-    <input type="file" id="videoInput" accept="video/*" required />
-    <br><br>
-    <button type="submit">Submit</button>
-    <button type="button" id="resetBtn">Reset</button>
-  </form>
-
+  <h1>Live rPPG Pulse Detection</h1>
+  <video id="webcam" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <br>
+  <button id="startCapture">Start 30s Capture</button>
   <p id="status"></p>
-  <img id="waveform" src="" alt="Pulse waveform will appear here"/>
+  <img id="waveform" src="" alt="Pulse waveform will appear here" />
 
   <script>
-    const uploadForm = document.getElementById("uploadForm");
-    const resetBtn = document.getElementById("resetBtn");
-    const input = document.getElementById('videoInput');
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
     const status = document.getElementById('status');
     const waveform = document.getElementById('waveform');
+    const startButton = document.getElementById('startCapture');
+    const capturedFrames = [];
 
-    uploadForm.addEventListener("submit", async function (event) {
-      event.preventDefault();
+    let countdownInterval;
 
-      const file = input.files[0];
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => video.srcObject = stream)
+      .catch(err => status.innerText = "❌ Webcam access denied");
 
-      if (!file) {
-        alert("❌ Please select a video file.");
-        return;
-      }
-
-      // ✅ Check file type
-      if (!file.type.startsWith("video/")) {
-        alert("❌ Invalid file type. Please upload a video.");
-        return;
-      }
-
-      // ✅ Check file size (20MB max)
-      const maxSizeMB = 20;
-      if (file.size > maxSizeMB * 1024 * 1024) {
-        alert(`❌ File too large. Maximum size is ${maxSizeMB}MB.`);
-        return;
-      }
-
-      // ✅ Check video duration ≤ 30 seconds
-      const videoEl = document.createElement('video');
-      videoEl.preload = "metadata";
-
-      videoEl.onloadedmetadata = async function () {
-        window.URL.revokeObjectURL(videoEl.src);
-        const duration = videoEl.duration;
-
-        if (duration > 30) {
-          alert("❌ Video must be 30 seconds or shorter.");
-          return;
-        }
-
-        // Upload if valid
-        status.innerText = "⏳ Processing video...";
-        waveform.src = "";
-
-        const formData = new FormData();
-        formData.append('video', file);
-
-        try {
-          const response = await fetch('https://rppg.onrender.com/api/rppg/pulse', {
-            method: 'POST',
-            body: formData
-          });
-
-          const data = await response.json();
-          if (response.ok) {
-            status.innerText = "✅ Pulse extracted successfully!";
-            waveform.src = data.image;
-          } else {
-            status.innerText = "❌ Error: " + (data.message || 'Server error');
-          }
-        } catch (error) {
-          console.error("Fetch error:", error);
-          status.innerText = "❌ Network or server error.";
-        }
-      };
-
-      videoEl.onerror = function () {
-        alert("❌ Could not load video. Please choose a valid file.");
-      };
-
-      videoEl.src = URL.createObjectURL(file);
-    });
-
-    // ✅ Reset button handler
-    resetBtn.addEventListener("click", function () {
-      input.value = "";
+    startButton.addEventListener('click', async () => {
+      capturedFrames.length = 0;
       waveform.src = "";
-      status.innerText = "";
+      startButton.disabled = true;
+
+      const ctx = canvas.getContext('2d');
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+
+      const totalTime = 30; // seconds
+      let secondsLeft = totalTime;
+
+      status.innerText = `⏳ Capturing... ${secondsLeft}s remaining`;
+
+      countdownInterval = setInterval(() => {
+        secondsLeft--;
+        status.innerText = `⏳ Capturing... ${secondsLeft}s remaining`;
+        if (secondsLeft <= 0) clearInterval(countdownInterval);
+      }, 1000);
+
+      const interval = 200; // 5 fps
+      const duration = totalTime * 1000;
+      const count = duration / interval;
+
+      let frameIndex = 0;
+      const captureInterval = setInterval(() => {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(blob => {
+          if (blob) capturedFrames.push(blob);
+        }, 'image/png');
+
+        frameIndex++;
+        if (frameIndex >= count) {
+          clearInterval(captureInterval);
+          clearInterval(countdownInterval);
+          sendFramesToBackend();
+        }
+      }, interval);
     });
+
+    async function sendFramesToBackend() {
+      status.innerText = "📤 Uploading frames to server...";
+      const formData = new FormData();
+      capturedFrames.forEach((blob, i) => {
+        formData.append('frames', blob, `frame-${i}.png`);
+      });
+
+      try {
+        const res = await fetch('http://localhost:4000/api/rppg/pulse-frames', {
+          method: 'POST',
+          body: formData
+        });
+        console.log(res);
+        
+        const data = await res.json();
+
+        if (res.ok) {
+          status.innerText = "✅ Pulse extracted successfully!";
+          waveform.src = data.image;
+        } else {
+          status.innerText = "❌ Error: " + data.message;
+        }
+      } catch (err) {
+        status.innerText = "❌ Network or server error";
+        console.error(err);
+      } finally {
+        startButton.disabled = false;
+      }
+    }
   </script>
 
 </body>
+
 </html>

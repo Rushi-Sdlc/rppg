@@ -1,27 +1,22 @@
-// routes/rppgRoutes.js
 const express = require('express');
-const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 const rppgController = require('../controllers/rppgController');
 
+const router = express.Router();
+
 const storage = multer.diskStorage({
-  destination: './uploads',
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-  fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith('video/')) {
-      return cb(new Error('Only video files are allowed'), false);
-    }
-    cb(null, true);
+  destination: (req, file, cb) => {
+    const dir = './uploads/frames_' + Date.now();
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
   },
+  filename: (req, file, cb) => cb(null, file.originalname),
 });
 
+const upload = multer({ storage });
 
-router.post('/pulse', upload.single('video'), rppgController.extractPulse);
+router.post('/pulse-frames', upload.array('frames'), rppgController.extractPulseFromFrames);
 
 module.exports = router;

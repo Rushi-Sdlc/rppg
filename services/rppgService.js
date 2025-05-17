@@ -1,32 +1,16 @@
-// services/rppgService.js
-const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const tf = require('@tensorflow/tfjs-node');
-const path = require('path');
 const { createCanvas } = require('canvas');
-
-function extractFrames(videoPath, outputDir) {
-  return new Promise((resolve, reject) => {
-    ffmpeg(videoPath)
-      .on('end', resolve)
-      .on('error', reject)
-      .screenshots({
-        count: 150, // ~5 fps for 30 sec
-        folder: outputDir,
-        filename: 'frame-%03d.png',
-      });
-  });
-}
 
 async function estimatePulseFromFrames(framePaths) {
   const signal = [];
 
   for (const framePath of framePaths) {
     const imageBuffer = fs.readFileSync(framePath);
-    const imageTensor = tf.node.decodeImage(imageBuffer); // [H, W, 3]
+    const imageTensor = tf.node.decodeImage(imageBuffer);
 
-    const green = imageTensor.slice([0, 0, 1], [-1, -1, 1]); // Extract green channel
-    const mean = green.mean().arraySync(); // Scalar mean of green
+    const green = imageTensor.slice([0, 0, 1], [-1, -1, 1]);
+    const mean = green.mean().arraySync();
 
     signal.push(mean);
     imageTensor.dispose();
@@ -52,33 +36,21 @@ function generateSignalPlot(signal) {
   const max = Math.max(...signal);
   const range = max - min;
 
-  ctx.strokeStyle = 'red';
+  ctx.strokeStyle = 'green';
   ctx.lineWidth = 2;
   ctx.beginPath();
 
   signal.forEach((val, i) => {
     const x = (i / (signal.length - 1)) * width;
     const y = height - ((val - min) / range) * height;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
   });
 
   ctx.stroke();
-  return canvas.toDataURL(); // base64 PNG
+  return canvas.toDataURL();
 }
 
-exports.processVideo = async (videoPath) => {
-  const frameDir = path.join(__dirname, '../uploads/frames_' + Date.now());
-  fs.mkdirSync(frameDir, { recursive: true });
-
-  await extractFrames(videoPath, frameDir);
-
-  const frames = fs.readdirSync(frameDir)
-    .filter(f => f.endsWith('.png'))
-    .map(f => path.join(frameDir, f));
-
-  const result = await estimatePulseFromFrames(frames);
-
-  fs.rmSync(frameDir, { recursive: true, force: true });
-
-  return result;
+exports.processFrames = async (framePaths) => {
+  return await estimatePulseFromFrames(framePaths);
 };
